@@ -5,11 +5,15 @@
 
 #include <SDL.h>
 #include <SDL2_gfxPrimitives.h>
+#include <SDL_thread.h>
 
-#define WIN_WIDTH 1280
-#define WIN_HEIGHT 1024
+#define WIN_WIDTH 1920
+#define WIN_HEIGHT 1200
 
-static struct xwiigun gun;
+#define TIMEOUT 120
+
+static struct xwiigun gun0;
+static struct xwiigun gun1;
 static SDL_Window *win;
 static SDL_Renderer *renderer;
 static SDL_Surface *screen;
@@ -67,7 +71,7 @@ static void draw_ir(struct xwii_event_abs ir[4], int r, int g, int b, int a)
         lineRGBA(renderer, ir[SIDE_TOP].x + x, ir[SIDE_TOP].y + y, ir[SIDE_LEFT].x + x, ir[SIDE_LEFT].y + y, r, g, b, a);
 }
 
-static void render()
+static void render(xwiigun *gun)
 {
     SDL_Surface *screen = SDL_GetWindowSurface(win);
     SDL_FillRect(screen, NULL, SDL_MapRGB(screen->format, 0, 0, 255));
@@ -97,56 +101,89 @@ static void render()
     SDL_FillRect(screen, &center, SDL_MapRGB(screen->format, 255, 0, 0));
 
 
-    char calibrated_str[255] = "CALIBRATION DATA MISSING - POINT AT THE CENTER OF THE SCREEN";
+    char uncalibrated_str[255] = "CALIBRATION DATA MISSING - POINT AT THE CENTER OF THE SCREEN";
 
     if (gun.calibrated) {
-        struct xwii_event_abs c;
-
-        c.x = WIN_WIDTH * gun.hpos;
-        c.y = WIN_HEIGHT * gun.vpos;
-
-        draw_box(screen, &c, "cursor", false, 255, 255, 255, 255);
-
-        char calibrated_time_str[255];
-        struct tm *tm;
-        tm = localtime(&gun.calibrated);
-        strftime(calibrated_time_str, sizeof(calibrated_time_str), "%F %H:%M:%S", tm);
-        snprintf(calibrated_str, sizeof(calibrated_str), "Last calibration: %s", gun.calibrated ? calibrated_time_str : "N/A");
-        stringRGBA(renderer, 0, WIN_HEIGHT - 8, calibrated_str, 255, 255, 255, 255);
-
-        char cursor_str[255];
-        snprintf(cursor_str, sizeof(cursor_str), "[ %1.4f %1.4f ]", gun.hpos, gun.vpos);
-        stringRGBA(renderer, WIN_WIDTH - (strlen(cursor_str) * 8), WIN_HEIGHT - 8, cursor_str, 255, 255, 255, 255);
+        draw_cursor(gun)
     } else {
-        stringRGBA(renderer, 0, WIN_HEIGHT - 8, calibrated_str, 255, 0, 0, 255);
+        stringRGBA(renderer, 0, WIN_HEIGHT - 8, uncalibrated_str, 255, 0, 0, 255);
     }
 
     SDL_UpdateWindowSurface(win);
 }
 
+static void draw_cursor(struct xwiigun* gun) {
+    struct xwii_event_abs c;
+
+    c.x = WIN_WIDTH * gun.hpos;
+    c.y = WIN_HEIGHT * gun.vpos;
+
+    draw_box(screen, &c, "cursor", false, 255, 255, 255, 255);
+
+    char calibrated_time_str[255];
+    char calibrated_str[255];
+    struct tm *tm;
+    tm = localtime(&gun.calibrated);
+    strftime(calibrated_time_str, sizeof(calibrated_time_str), "%F %H:%M:%S", tm);
+    snprintf(calibrated_str, sizeof(calibrated_str), "Last calibration: %s", gun.calibrated ? calibrated_time_str : "N/A");
+    stringRGBA(renderer, 0, WIN_HEIGHT - 8, calibrated_str, 255, 255, 255, 255);
+
+    char cursor_str[255];
+    snprintf(cursor_str, sizeof(cursor_str), "[ %1.4f %1.4f ]", gun.hpos, gun.vpos);
+    stringRGBA(renderer, WIN_WIDTH - (strlen(cursor_str) * 8), WIN_HEIGHT - 8, cursor_str, 255, 255, 255, 255);
+
+}
+
+int render_thread( void* gun )
+{
+    gun.blocking = true;
+    for(int i=0; i < TIMEOUT; i++) {
+        if (xwiigun_open((xwiigun)&gun)) {
+            printf("No gun found\n");
+        }
+        else {
+            while (! xwiigun_poll(&gun)) {
+                render(&gun);
+                //printf("cal: %s, off: %s, hpos: %1.3f, vpos: %1.3f, ar: %1.3f\n", gun.calibrated ? "ok" : "??", gun.offscreen ? "yes" : "no ", gun.hpos, gun.vpos, gun.ar);
+            }
+        }
+        sleep(1000);
+    }
+    xwiigun_close(&gun);
+
+    return 0;
+}
+
 int main(int argc, char **argv)
 {
-    if (xwiigun_open(&gun)) {
-        printf("No gun :(\n");
-        return 1;
-    }
+
+
 
     SDL_Init(SDL_INIT_VIDEO);
+
 
     win = SDL_CreateWindow("xwiigun calibration test", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, WIN_WIDTH, WIN_HEIGHT, SDL_WINDOW_SHOWN);
     screen = SDL_GetWindowSurface(win);
     renderer = SDL_CreateSoftwareRenderer(SDL_GetWindowSurface(win));
-
     SDL_SetWindowBordered(win, false);
 
-    gun.blocking = true;
+    SDL_Thread* gun0_thread = SDL_CreateThread( render_thread, "gun 0 thread", (void*)gun0 );
+    SDL_Thread* gun1_thread = SDL_CreateThread( render_thread, "gun 1 thread", (void*)gun1 );
 
-    while (!xwiigun_poll(&gun)) {
-        //printf("cal: %s, off: %s, hpos: %1.3f, vpos: %1.3f, ar: %1.3f\n", gun.calibrated ? "ok" : "??", gun.offscreen ? "yes" : "no ", gun.hpos, gun.vpos, gun.ar);
-        render(&gun);
+    bool quit = false;
+
+    while( !quit )
+    {
+        //Handle events on queue
+        while( SDL_PollEvent( &e ) != 0 )
+        {
+            //User requests quit
+            if( e.type == SDL_QUIT )
+            {
+                quit = true;
+            }
+        }
     }
-
-    xwiigun_close(&gun);
 
     return 0;
 }

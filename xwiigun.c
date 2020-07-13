@@ -148,8 +148,8 @@ static void handle_ir(struct xwiigun *gun, struct xwii_event *e)
     else if (npoints == 2) {
         const static struct xwii_event_abs corners[4] = {
             { 0,    0,   0 }, // top left
-            { 1024, 0,   0 }, // top right 
-            { 1024, 768, 0 }, // bottom right 
+            { 1024, 0,   0 }, // top right
+            { 1024, 768, 0 }, // bottom right
             { 0,    768, 0 }  // bottom left
         };
 
@@ -414,7 +414,7 @@ int xwiigun_open(struct xwiigun *gun)
     reset_ir(gun->ir.prev);
     reset_ir(gun->ir.now);
     reset_ir(gun->ir.cal);
-   
+
     // caller can adjust this later on for calibration purposes
     gun->center.x = 512;
     gun->center.y = 384;
